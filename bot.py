@@ -27,7 +27,7 @@ WELCOME_IMAGES = [
 ]
 
 LOG_GROUP_ID = "-1002238698538"  # Replace with your log group ID
-MAX_REQUESTS = 10000
+MAX_REQUESTS = 100000
 UPDATE_INTERVAL = 300  # 5 minutes in seconds
 
 # Dictionary to store active attacks
