@@ -7,6 +7,7 @@ from datetime import datetime
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+from flask import Flask, request
 
 # Configure logging
 logging.basicConfig(
@@ -33,6 +34,9 @@ UPDATE_INTERVAL = 300  # 5 minutes in seconds
 # Dictionary to store active attacks
 active_attacks = {}
 
+# Flask app for webhook
+app = Flask(__name__)
+
 class SimulatedDDoSAttack:
     def __init__(self, target_url, user_id, username, context, chat_id, message_id):
         self.target_url = target_url
@@ -50,22 +54,17 @@ class SimulatedDDoSAttack:
     async def send_requests(self):
         """Simulate sending requests without actually performing a DDoS attack"""
         try:
-            # This is a simulation - we're not actually sending multiple requests
-            # We just increment a counter to demonstrate the concept
             while not self.stop_event.is_set() and self.sent_requests < MAX_REQUESTS:
                 try:
-                    # For educational purposes, just make a single request to check if the URL is valid
                     if self.sent_requests == 0:
                         response = requests.head(self.target_url, timeout=5)
                         logger.info(f"Verified URL exists: {self.target_url} | Status Code: {response.status_code}")
                     
-                    # Simulate sending requests by just incrementing a counter
                     increment = random.randint(50, 200)
                     self.sent_requests += increment
                     if self.sent_requests > MAX_REQUESTS:
                         self.sent_requests = MAX_REQUESTS
                     
-                    # Sleep to avoid CPU overuse in this simulation
                     time.sleep(0.5)
                     
                 except requests.exceptions.RequestException as e:
@@ -99,10 +98,8 @@ class SimulatedDDoSAttack:
                 )
                 
                 try:
-                    # Delete previous message and send a new one
                     await self.context.bot.delete_message(chat_id=self.chat_id, message_id=self.message_id)
                 except Exception:
-                    # Message might be already deleted or too old
                     pass
                 
                 new_message = await self.context.bot.send_message(
@@ -112,13 +109,11 @@ class SimulatedDDoSAttack:
                 )
                 self.message_id = new_message.message_id
                 
-                # Wait for the update interval or until the stop event is set
                 for _ in range(UPDATE_INTERVAL):
                     if self.stop_event.is_set() or self.sent_requests >= MAX_REQUESTS:
                         break
                     time.sleep(1)
                 
-                # If completed, break the loop
                 if self.sent_requests >= MAX_REQUESTS:
                     await self.context.bot.delete_message(chat_id=self.chat_id, message_id=self.message_id)
                     await self.context.bot.send_message(
@@ -141,10 +136,8 @@ class SimulatedDDoSAttack:
     async def start(self):
         """Start the attack simulation"""
         try:
-            # Log the attack request
             await self.log_attack_start()
             
-            # Start the threads
             self.attack_thread = threading.Thread(target=self.run_attack)
             self.attack_thread.daemon = True
             self.attack_thread.start()
@@ -180,8 +173,6 @@ class SimulatedDDoSAttack:
     async def stop(self):
         """Stop the attack simulation"""
         self.stop_event.set()
-        
-        # Log the attack stop
         await self.log_attack_stop()
         
         elapsed_time = (datetime.now() - self.start_time).total_seconds()
@@ -189,7 +180,6 @@ class SimulatedDDoSAttack:
         try:
             await self.context.bot.delete_message(chat_id=self.chat_id, message_id=self.message_id)
         except Exception:
-            # Message might be already deleted
             pass
         
         await self.context.bot.send_message(
@@ -249,7 +239,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         random_image = random.choice(WELCOME_IMAGES)
         
         welcome_message = (
-            f"🌟 *𝗪𝗲𝗹𝗰𝗼𝗺𝗲 {user.first_name}!* 🌟\n\n"
+            f"🌟 Welcome {user.first_name}! 🌟\n\n"
             f"👋 Hi there @{user.username}! Welcome to the Educational DDoS Simulation Bot.\n\n"
             f"💡 This bot is for educational purposes only to understand how DDoS attacks work.\n\n"
             f"🚀 Use the /atck command to start a simulation against a test website."
@@ -270,7 +260,6 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         user_id = user.id
         
-        # Check if the user already has an active attack
         if user_id in active_attacks:
             await update.message.reply_text(
                 "❌ You already have an active simulation running.\n"
@@ -296,17 +285,14 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = user.username or user.first_name
         url = update.message.text
         
-        # Check if the URL is in a valid format
         if not (url.startswith('http://') or url.startswith('https://')):
             await update.message.reply_text(
                 "❌ Invalid URL format. Please enter a URL starting with http:// or https://"
             )
             return
         
-        # Delete the message with the URL
         await update.message.delete()
         
-        # Send initial status message
         status_message = await update.message.reply_text(
             f"🚀 *PREPARING SIMULATION*\n\n"
             f"🔗 Target URL: `{url}`\n"
@@ -314,7 +300,6 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         
-        # Create and start the attack
         attack = SimulatedDDoSAttack(
             target_url=url,
             user_id=user_id,
@@ -324,10 +309,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message_id=status_message.message_id
         )
         
-        # Store the attack in the active attacks dictionary
         active_attacks[user_id] = attack
-        
-        # Start the attack
         await attack.start()
     except Exception as e:
         logger.error(f"Error in handle_url: {e}")
@@ -343,7 +325,6 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             attack = active_attacks[user_id]
             await attack.stop()
             del active_attacks[user_id]
-            # No need to send a message here, as the stop method already sends one
         else:
             await update.message.reply_text("❌ You don't have any active simulations to stop.")
     except Exception as e:
@@ -371,12 +352,16 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
+# Flask route for webhook
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put(update)
+    return 'ok'
+
 def main():
     """Start the bot."""
-    # You can directly set your bot token here
-    token = "7841232248:AAHCJnnIQijECkKUUsNfJ7M2pBqmn9zzRWk"  # Replace this with your actual bot token
-    
-    # Or get it from environment variable if set
+    token = "7841232248:AAHCJnnIQijECkKUUsNfJ7M2pBqmn9zzRWk"  # Replace with your bot token
     env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if env_token:
         token = env_token
@@ -386,6 +371,7 @@ def main():
         return
     
     # Create the application
+    global application
     application = Application.builder().token(token).build()
     
     # Add handlers
@@ -393,24 +379,15 @@ def main():
     application.add_handler(CommandHandler("atck", attack_command))
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel_attack$"))
-    
-    # Add message handler to capture URLs
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.Entity("url"),
-        handle_url
-    ))
-    
-    # Add error handler
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Entity("url"), handle_url))
     application.add_error_handler(error_handler)
     
-    # Start the bot with optimizations for Termux
-    application.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True,
-        poll_interval=1.0,
-        timeout=30
-    )
-    logger.info("Bot started successfully on Termux")
+    # Set webhook
+    webhook_url = "https://sdv-ddos-bot.onrender.com/webhook"  # Replace with your Render app URL
+    application.bot.set_webhook(webhook_url)
+    
+    # Start Flask server
+    app.run(host='0.0.0.0', port=10000)
 
 if __name__ == "__main__":
     main()
